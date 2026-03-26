@@ -184,9 +184,9 @@ export class MemosView extends ItemView {
             debouncedSearch((e.target as HTMLInputElement).value);
         });
 
-        // 标签筛选下拉
-        const tagFilter = toolbar.createDiv({ cls: 'memos-tag-filter' });
-        this.createTagFilterDropdown(tagFilter);
+        // 任务筛选下拉
+        const taskFilter = toolbar.createDiv({ cls: 'memos-tag-filter' });
+        this.createTaskFilterDropdown(taskFilter);
     }
 
     /**
@@ -413,26 +413,26 @@ export class MemosView extends ItemView {
     }
 
     /**
-     * 创建标签筛选下拉菜单
+     * 创建任务筛选下拉菜单
      */
-    private async createTagFilterDropdown(container: HTMLElement): Promise<void> {
-        const tags = await this.storage.getAllTags();
-        
+    private createTaskFilterDropdown(container: HTMLElement): void {
         const select = container.createEl('select', { cls: 'memos-tag-select' });
-        
-        // 默认选项
-        const defaultOption = select.createEl('option', { value: '' });
-        defaultOption.setText('全部标签');
-        
-        // 标签选项
-        for (const tag of tags) {
-            const option = select.createEl('option', { value: tag });
-            option.setText(`#${tag}`);
+
+        const options: { value: string; label: string }[] = [
+            { value: '', label: '全部闪念' },
+            { value: 'all', label: '全部任务' },
+            { value: 'todo', label: '未完成任务' },
+            { value: 'done', label: '已完成任务' },
+        ];
+
+        for (const opt of options) {
+            const el = select.createEl('option', { value: opt.value });
+            el.setText(opt.label);
         }
 
         select.addEventListener('change', () => {
-            this.currentFilter.tag = select.value || undefined;
-            this.currentFilter.filterTags = undefined; // 下拉框只支持单标签筛选
+            const val = select.value as '' | 'all' | 'todo' | 'done';
+            this.currentFilter.taskListMode = val || undefined;
             this.loadMemos();
         });
     }

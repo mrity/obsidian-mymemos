@@ -9,6 +9,10 @@ node_modules/
 .idea/
 *.iml
 .vscode/
+.vs/
+
+# OMC
+.omc/
 
 # OS
 .DS_Store
