@@ -1434,3 +1434,35 @@
     color: var(--text-faint);
     font-size: 13px;
 }
+
+/* 待办复选框 */
+.memos-task-checkbox {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    cursor: pointer;
+    accent-color: var(--interactive-accent);
+    align-self: center;
+}
+
+.memos-input-task-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.memos-input-task-row label {
+    cursor: pointer;
+    user-select: none;
+}
+
+/* 标签云 */
+.memos-tag-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 0 2px;
+}

@@ -6,7 +6,7 @@
 
 import { App, Modal, Notice, Setting } from 'obsidian';
 import { MemosStorage } from './storage';
-import { MemoItem, MemosPluginSettings, parseQuickTags } from './types';
+import { MemoItem, MemosPluginSettings } from './types';
 import { formatTime } from './utils';
 
 export class MemoInputModal extends Modal {
@@ -14,6 +14,7 @@ export class MemoInputModal extends Modal {
     private settings: MemosPluginSettings;
     private textArea: HTMLTextAreaElement | null = null;
     private tagInput: HTMLInputElement | null = null;
+    private taskCheckbox: HTMLInputElement | null = null;
     private onSubmitCallback: (() => void) | null = null;
     private isSubmitting: boolean = false;
     private editingMemo: MemoItem | null = null; // 编辑模式下的原始闪念
@@ -109,6 +110,23 @@ export class MemoInputModal extends Modal {
 
         // 标签输入区域
         const tagContainer = contentEl.createDiv({ cls: 'memos-input-tags' });
+
+        // 待办复选框（仅新建模式）
+        if (!this.isEditMode) {
+            const taskRow = contentEl.createDiv({ cls: 'memos-input-task-row' });
+            this.taskCheckbox = taskRow.createEl('input', {
+                cls: 'memos-task-checkbox',
+                attr: { type: 'checkbox', id: 'memos-task-checkbox' }
+            });
+            if (this.settings.defaultTaskMode) {
+                this.taskCheckbox.checked = true;
+            }
+            const taskLabel = taskRow.createEl('label', {
+                text: '以待办形式记录',
+                attr: { for: 'memos-task-checkbox' }
+            });
+        }
+
         const tagLabel = tagContainer.createSpan({ cls: 'memos-tag-label' });
         tagLabel.setText('标签:');
         
@@ -125,51 +143,7 @@ export class MemoInputModal extends Modal {
             this.tagInput.value = this.editingMemo.tags.join(' ');
         }
 
-        // 快捷标签按钮区域
-        const quickTags = parseQuickTags(this.settings.quickTags);
-        if (quickTags.length > 0) {
-            const quickTagsContainer = contentEl.createDiv({ cls: 'memos-quick-tags' });
-            
-            // "全部"按钮（清除标签筛选）
-            const allBtn = quickTagsContainer.createEl('button', {
-                cls: 'memos-quick-tag memos-quick-tag-all',
-                text: '全部'
-            });
-            allBtn.addEventListener('click', () => {
-                if (this.tagInput) {
-                    this.tagInput.value = '';
-                    this.tagInput.focus();
-                }
-                // 更新按钮状态
-                quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                    btn.removeClass('is-active');
-                });
-                allBtn.addClass('is-active');
-            });
-            allBtn.addClass('is-active'); // 默认选中
-
-            // 快捷标签按钮
-            for (const tag of quickTags) {
-                const tagBtn = quickTagsContainer.createEl('button', {
-                    cls: 'memos-quick-tag',
-                    text: tag.label
-                });
-                tagBtn.setAttribute('data-keyword', tag.keyword);
-                
-                tagBtn.addEventListener('click', () => {
-                    if (this.tagInput) {
-                        // 设置标签（替换而非追加）
-                        this.tagInput.value = tag.keyword;
-                        this.textArea?.focus();
-                    }
-                    // 更新按钮状态
-                    quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                        btn.removeClass('is-active');
-                    });
-                    tagBtn.addClass('is-active');
-                });
-            }
-        }
+        // 快捷标签按钮区域已移除（改为在主视图动态标签云中统一管理）
 
         // 底部按钮区域
         const footer = contentEl.createDiv({ cls: 'memos-input-footer' });
@@ -248,7 +222,8 @@ export class MemoInputModal extends Modal {
                 }
             } else {
                 // 新建模式：创建新闪念
-                const memo = await this.storage.saveMemo(content, tags);
+                const isTask = this.taskCheckbox?.checked ?? false;
+                const memo = await this.storage.saveMemo(content, tags, isTask);
                 success = !!memo;
                 if (success) {
                     new Notice('✨ 闪念已记录');

@@ -18,7 +18,7 @@
 
 import { ItemView, WorkspaceLeaf, Menu, Notice, MarkdownRenderer, TFile } from 'obsidian';
 import { MemosStorage } from './storage';
-import { MemoItem, MemosPluginSettings, MEMOS_VIEW_TYPE, parseQuickTags, QuickTag, parseSmartKeywords, matchSmartKeyword, matchHabitKeyword, TaskStatus, PomodoroSession } from './types';
+import { MemoItem, MemosPluginSettings, MEMOS_VIEW_TYPE, parseSmartKeywords, matchSmartKeyword, matchHabitKeyword, TaskStatus, PomodoroSession } from './types';
 import { getFriendlyDateDisplay, debounce, truncateText } from './utils';
 import { MemoInputModal } from './InputModal';
 import { PomodoroManager } from './pomodoro';
@@ -35,10 +35,10 @@ export class MemosView extends ItemView {
     private displayedMemos: MemoItem[] = [];
     private page: number = 1;
     private inputTextArea: HTMLTextAreaElement | null = null;
-    private currentTag: string = '';
-    private currentQuickTag: QuickTag | null = null;
+    private taskCheckbox: HTMLInputElement | null = null;
+    private tagCloudContainer: HTMLElement | null = null;
+    private selectedTags: Set<string> = new Set();
     private editingMemo: MemoItem | null = null;
-    private quickTagsSelect: HTMLSelectElement | null = null;
     /**
      * 番茄钟 UI 容器缓存：stableMemoId → 该卡片中的 .memos-pomodoro-control 元素
      * 避免 PomodoroManager 每秒 tick 时都要 querySelector 查 DOM
@@ -198,6 +198,15 @@ export class MemosView extends ItemView {
         // 输入框容器（包含输入框和发送按钮）
         const inputRow = inputArea.createDiv({ cls: 'memos-input-row' });
 
+        // 待办复选框
+        this.taskCheckbox = inputRow.createEl('input', {
+            cls: 'memos-task-checkbox',
+            attr: { type: 'checkbox', title: '以待办形式记录' }
+        });
+        if (this.settings.defaultTaskMode) {
+            this.taskCheckbox.checked = true;
+        }
+
         // 输入框
         this.inputTextArea = inputRow.createEl('textarea', {
             cls: 'memos-inline-input',
@@ -237,162 +246,51 @@ export class MemosView extends ItemView {
             return true;
         };
 
-        // 快捷标签区域（桌面：按钮；手机端由 CSS 隐藏按钮、显示下拉）
-        const quickTags = parseQuickTags(this.settings.quickTags);
-        if (quickTags.length > 0) {
-            const quickTagsContainer = inputArea.createDiv({ cls: 'memos-inline-quick-tags' });
+        // 标签云区域（自动从闪念中提取标签，按频次排序）
+        this.tagCloudContainer = inputArea.createDiv({ cls: 'memos-tag-cloud' });
+        this.renderTagCloud();
+    }
 
-            const syncQuickTagsSelect = () => {
-                if (this.quickTagsSelect) {
-                    this.quickTagsSelect.value = this.currentTag || '';
-                }
-            };
-
-            // "全部"按钮
-            const allBtn = quickTagsContainer.createEl('button', {
-                cls: 'memos-quick-tag memos-quick-tag-all is-active',
-                text: '全部'
+    /**
+     * 渲染标签云
+     */
+    private async renderTagCloud(): Promise<void> {
+        if (!this.tagCloudContainer) return;
+        this.tagCloudContainer.empty();
+        const tags = await this.storage.getTagsWithCount();
+        if (tags.length === 0) return;
+        for (const { tag } of tags) {
+            const btn = this.tagCloudContainer.createEl('button', {
+                cls: 'memos-quick-tag' + (this.selectedTags.has(tag) ? ' is-active' : ''),
+                text: `#${tag}`
             });
-            allBtn.addEventListener('click', async () => {
-                this.currentTag = '';
-                this.currentQuickTag = null;
-                this.currentFilter.tag = undefined;
-                this.currentFilter.filterTags = undefined;
-                this.currentFilter.taskListMode = undefined; // 清除任务列表模式
-                quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
+            btn.setAttribute('data-tag', tag);
+            btn.addEventListener('click', async () => {
+                if (this.selectedTags.has(tag)) {
+                    this.selectedTags.delete(tag);
                     btn.removeClass('is-active');
-                });
-                allBtn.addClass('is-active');
-                syncQuickTagsSelect();
-                await this.loadMemos();
-            });
-
-            // 快捷标签按钮
-            for (const tag of quickTags) {
-                const tagBtn = quickTagsContainer.createEl('button', {
-                    cls: 'memos-quick-tag',
-                    text: tag.label
-                });
-                tagBtn.setAttribute('data-keyword', tag.keyword);
-
-                tagBtn.addEventListener('click', async () => {
-                    this.currentTag = tag.keyword;
-                    this.currentQuickTag = tag;
-                    this.currentFilter.tag = tag.keyword;
-                    this.currentFilter.filterTags = tag.keywords;
-                    this.currentFilter.taskListMode = undefined; // 清除任务列表模式
-                    quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                        btn.removeClass('is-active');
-                    });
-                    tagBtn.addClass('is-active');
-                    syncQuickTagsSelect();
-                    await this.loadMemos();
-                });
-            }
-
-            // 特殊任务列表标签
-            if (this.settings.enableTaskListTags) {
-                // 所有任务
-                const allTasksBtn = quickTagsContainer.createEl('button', {
-                    cls: 'memos-quick-tag memos-task-list-tag',
-                    text: this.settings.allTasksTagName
-                });
-                allTasksBtn.addEventListener('click', async () => {
-                    this.currentTag = '';
-                    this.currentQuickTag = null;
-                    this.currentFilter.tag = undefined;
-                    this.currentFilter.filterTags = undefined;
-                    this.currentFilter.taskListMode = 'all'; // 显示所有任务
-                    quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                        btn.removeClass('is-active');
-                    });
-                    allTasksBtn.addClass('is-active');
-                    syncQuickTagsSelect();
-                    await this.loadMemos();
-                });
-
-                // 待办任务
-                const todoListBtn = quickTagsContainer.createEl('button', {
-                    cls: 'memos-quick-tag memos-task-list-tag',
-                    text: this.settings.todoListTagName
-                });
-                todoListBtn.addEventListener('click', async () => {
-                    this.currentTag = '';
-                    this.currentQuickTag = null;
-                    this.currentFilter.tag = undefined;
-                    this.currentFilter.filterTags = undefined;
-                    this.currentFilter.taskListMode = 'todo'; // 只显示未完成任务
-                    quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                        btn.removeClass('is-active');
-                    });
-                    todoListBtn.addClass('is-active');
-                    syncQuickTagsSelect();
-                    await this.loadMemos();
-                });
-
-                // 已完成任务
-                const doneListBtn = quickTagsContainer.createEl('button', {
-                    cls: 'memos-quick-tag memos-task-list-tag',
-                    text: this.settings.doneListTagName
-                });
-                doneListBtn.addEventListener('click', async () => {
-                    this.currentTag = '';
-                    this.currentQuickTag = null;
-                    this.currentFilter.tag = undefined;
-                    this.currentFilter.filterTags = undefined;
-                    this.currentFilter.taskListMode = 'done'; // 只显示已完成任务
-                    quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                        btn.removeClass('is-active');
-                    });
-                    doneListBtn.addClass('is-active');
-                    syncQuickTagsSelect();
-                    await this.loadMemos();
-                });
-            }
-
-            // 手机端：标签下拉（小屏时 CSS 显示、按钮隐藏，包含"全部"选项）
-            const dropdownWrap = inputArea.createDiv({ cls: 'memos-quick-tags-dropdown' });
-            const select = dropdownWrap.createEl('select', { cls: 'memos-quick-tags-select' });
-            this.quickTagsSelect = select;
-            // 手机端：添加"全部"选项和配置的标签
-            if (quickTags.length > 0) {
-                // 添加"全部"选项（显示全部内容）
-                const allOption = select.createEl('option', { value: '', text: '全部' });
-                allOption.setAttribute('selected', 'true');
-                // 添加配置的标签
-                for (const tag of quickTags) {
-                    select.createEl('option', { value: tag.keyword, text: tag.label });
-                }
-            }
-            select.addEventListener('change', async () => {
-                const value = select.value;
-                if (!value) {
-                    // 选择了"全部"选项，清除所有筛选条件，显示全部内容
-                    this.currentTag = '';
-                    this.currentQuickTag = null;
-                    this.currentFilter.tag = undefined;
-                    this.currentFilter.filterTags = undefined;
-                    quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                        btn.removeClass('is-active');
-                    });
-                    allBtn.addClass('is-active');
                 } else {
-                    const tag = quickTags.find(t => t.keyword === value);
-                    if (tag) {
-                        this.currentTag = tag.keyword;
-                        this.currentQuickTag = tag;
-                        this.currentFilter.tag = tag.keyword;
-                        this.currentFilter.filterTags = tag.keywords;
-                        quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                            btn.removeClass('is-active');
-                            if (btn.getAttribute('data-keyword') === value) btn.addClass('is-active');
-                        });
-                        allBtn.removeClass('is-active');
-                    }
+                    this.selectedTags.add(tag);
+                    btn.addClass('is-active');
                 }
-                await this.loadMemos();
+                await this.applyTagFilter();
             });
         }
+    }
+
+    /**
+     * 根据已选标签应用筛选
+     */
+    private async applyTagFilter(): Promise<void> {
+        if (this.selectedTags.size === 0) {
+            this.currentFilter.tag = undefined;
+            this.currentFilter.filterTags = undefined;
+        } else {
+            this.currentFilter.filterTags = Array.from(this.selectedTags);
+            this.currentFilter.tag = undefined;
+        }
+        this.currentFilter.taskListMode = undefined;
+        await this.loadMemos();
     }
 
     /**
@@ -407,37 +305,19 @@ export class MemosView extends ItemView {
 
         // 智能标签追加
         let tags: string[] = [];
-        
+
         // 1. 先检查智能关键词（记账识别，需要数字）
         const smartKeywords = parseSmartKeywords(this.settings.smartKeywords);
         const smartTag = matchSmartKeyword(content, smartKeywords);
         if (smartTag && !content.includes(`#${smartTag}`)) {
             tags.push(smartTag);
         }
-        
+
         // 2. 检查习惯打卡关键词（不需要数字）
         const habitKeywords = parseSmartKeywords(this.settings.habitKeywords);
         const habitTag = matchHabitKeyword(content, habitKeywords);
         if (habitTag && !content.includes(`#${habitTag}`) && !tags.includes(habitTag)) {
             tags.push(habitTag);
-        }
-        
-        // 3. 再检查快捷标签分组
-        if (this.currentQuickTag && this.currentQuickTag.keywords.length > 0) {
-            // 检查内容中是否已包含分组内的任意标签（包括刚添加的智能标签）
-            const allTagsToCheck = [...this.currentQuickTag.keywords, ...tags];
-            const contentHasGroupTag = this.currentQuickTag.keywords.some(keyword => 
-                content.includes(`#${keyword}`) || tags.includes(keyword)
-            );
-            if (!contentHasGroupTag) {
-                // 内容中没有分组标签，追加第一个关键词
-                tags.push(this.currentQuickTag.keyword);
-            }
-        } else if (this.currentTag) {
-            // 单关键词模式（向后兼容）
-            if (!content.includes(`#${this.currentTag}`) && !tags.includes(this.currentTag)) {
-                tags.push(this.currentTag);
-            }
         }
 
         try {
@@ -451,7 +331,8 @@ export class MemosView extends ItemView {
                 }
             } else {
                 // 新建模式
-                const memo = await this.storage.saveMemo(content, tags);
+                const isTask = this.taskCheckbox?.checked ?? false;
+                const memo = await this.storage.saveMemo(content, tags, isTask);
                 success = !!memo;
                 if (success) {
                     new Notice('✨ 闪念已记录');
@@ -463,6 +344,10 @@ export class MemosView extends ItemView {
                 if (this.inputTextArea) {
                     this.inputTextArea.value = '';
                     this.inputTextArea.style.height = 'auto';
+                }
+                // 重置待办复选框（恢复到设置默认值）
+                if (this.taskCheckbox) {
+                    this.taskCheckbox.checked = this.settings.defaultTaskMode;
                 }
                 this.editingMemo = null;
                 this.updateInputAreaState();
@@ -490,22 +375,6 @@ export class MemosView extends ItemView {
             this.inputTextArea.selectionStart = this.inputTextArea.value.length;
             this.inputTextArea.selectionEnd = this.inputTextArea.value.length;
         }
-        
-        // 设置标签
-        if (memo.tags.length > 0) {
-            this.currentTag = memo.tags[0];
-            // 更新标签按钮状态
-            const quickTagsContainer = this.containerEl.querySelector('.memos-inline-quick-tags');
-            if (quickTagsContainer) {
-                quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                    btn.removeClass('is-active');
-                    if (btn.getAttribute('data-keyword') === this.currentTag) {
-                        btn.addClass('is-active');
-                    }
-                });
-            }
-        }
-        
         this.updateInputAreaState();
     }
 
@@ -517,16 +386,6 @@ export class MemosView extends ItemView {
         if (this.inputTextArea) {
             this.inputTextArea.value = '';
             this.inputTextArea.style.height = 'auto';
-        }
-        this.currentTag = '';
-        this.currentQuickTag = null;
-        // 重置标签按钮
-        const quickTagsContainer = this.containerEl.querySelector('.memos-inline-quick-tags');
-        if (quickTagsContainer) {
-            quickTagsContainer.querySelectorAll('.memos-quick-tag').forEach(btn => {
-                btn.removeClass('is-active');
-            });
-            quickTagsContainer.querySelector('.memos-quick-tag-all')?.addClass('is-active');
         }
         this.updateInputAreaState();
     }
@@ -621,7 +480,15 @@ export class MemosView extends ItemView {
                 const allMemos = await this.storage.getAllMemos();
                 memos = allMemos.filter(m => m.rawText.includes('🍅'));
             } else if (this.currentFilter.filterTags && this.currentFilter.filterTags.length > 0) {
-                memos = await this.storage.getMemosByTags(this.currentFilter.filterTags);
+                if (this.settings.tagFilterLogic === 'or') {
+                    memos = await this.storage.getMemosByTags(this.currentFilter.filterTags);
+                } else {
+                    // 默认 AND：同时包含所有选中标签
+                    const allMemos = await this.storage.getAllMemos();
+                    memos = allMemos.filter(memo =>
+                        this.currentFilter.filterTags!.every(tag => memo.tags.includes(tag))
+                    );
+                }
             } else if (this.currentFilter.tag) {
                 memos = await this.storage.getMemosByTag(this.currentFilter.tag);
             } else {

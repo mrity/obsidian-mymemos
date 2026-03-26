@@ -4,7 +4,7 @@
  */
 
 import { App, TFile, TFolder } from 'obsidian';
-import { MemoItem, MemosByDate, MemosPluginSettings, MEMO_PATTERN, parseQuickTags } from './types';
+import { MemoItem, MemosByDate, MemosPluginSettings, MEMO_PATTERN, TaskStatus } from './types';
 import {
     generateId,
     formatTime,
@@ -45,20 +45,20 @@ export class MemosStorage {
     /**
      * 保存闪念笔记
      */
-    async saveMemo(content: string, tags: string[] = []): Promise<MemoItem | null> {
+    async saveMemo(content: string, tags: string[] = [], isTask: boolean = false): Promise<MemoItem | null> {
         const now = new Date();
         const timeString = formatTime(now);
         const dateString = formatDate(now, this.settings.dateFormat);
         const journalPath = `${this.settings.journalFolder}/${getJournalFileName(now, this.settings.dateFormat)}`;
 
         // 构建闪念文本
-        let memoText = `- ${timeString} ${content}`;
-        
-        // 添加标签
         const allTags = [...this.settings.defaultTags, ...tags];
-        if (allTags.length > 0) {
-            const tagsText = allTags.map(t => `#${t}`).join(' ');
-            memoText = `- ${timeString} ${tagsText} ${content}`;
+        const tagsText = allTags.length > 0 ? allTags.map(t => `#${t}`).join(' ') + ' ' : '';
+        let memoText: string;
+        if (isTask) {
+            memoText = `- [ ] ${timeString} ${tagsText}${content}`;
+        } else {
+            memoText = `- ${timeString} ${tagsText}${content}`;
         }
 
         try {
@@ -191,10 +191,26 @@ export class MemosStorage {
     async searchMemos(query: string): Promise<MemoItem[]> {
         const allMemos = await this.getAllMemos();
         const lowerQuery = query.toLowerCase();
-        return allMemos.filter(memo => 
+        return allMemos.filter(memo =>
             memo.content.toLowerCase().includes(lowerQuery) ||
             memo.tags.some(tag => tag.toLowerCase().includes(lowerQuery))
         );
+    }
+
+    /**
+     * 获取所有标签及使用频次，按频次降序排列
+     */
+    async getTagsWithCount(): Promise<{tag: string, count: number}[]> {
+        const allMemos = await this.getAllMemos();
+        const freq = new Map<string, number>();
+        for (const memo of allMemos) {
+            for (const tag of memo.tags) {
+                freq.set(tag, (freq.get(tag) ?? 0) + 1);
+            }
+        }
+        return Array.from(freq.entries())
+            .map(([tag, count]) => ({ tag, count }))
+            .sort((a, b) => b.count - a.count);
     }
 
     /**
@@ -373,18 +389,13 @@ export class MemosStorage {
             };
         }
 
-        // 尝试匹配只有配置标签的格式: - #tag 内容
+        // 尝试匹配只有标签的格式: - #tag 内容
         const tagOnlyMatch = line.match(/^-\s+(#\S+.*)$/);
         if (tagOnlyMatch) {
             const restContent = tagOnlyMatch[1];
             const tags = extractTags(restContent);
-            
-            // 检查是否包含配置的快捷标签（聚合标签要检查整组关键词，如 cy+jf+qt+gw|每日记账 里的 jf 也要识别）
-            const quickTags = parseQuickTags(this.settings.quickTags);
-            const allQuickKeywords = new Set(quickTags.flatMap(t => t.keywords));
-            const hasQuickTag = tags.some(tag => allQuickKeywords.has(tag));
-            
-            if (hasQuickTag) {
+
+            if (tags.length > 0) {
                 // 移除标签获取纯内容
                 let content = restContent;
                 for (const tag of tags) {

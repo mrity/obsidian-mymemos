@@ -104,6 +104,16 @@ export class MemosSettingTab extends PluginSettingTab {
         containerEl.createEl('h3', { text: '⏱️ 任务时间追踪' });
 
         new Setting(containerEl)
+            .setName('默认以待办形式记录')
+            .setDesc('启用后，每次打开输入框时复选框默认勾选，内容将以 `- [ ]` 任务格式保存')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.defaultTaskMode)
+                .onChange(async (value) => {
+                    this.plugin.settings.defaultTaskMode = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
             .setName('启用任务时间追踪')
             .setDesc('点击任务复选框时自动切换状态并追踪耗时（参考 obsidian-time-tracking）')
             .addToggle(toggle => toggle
@@ -208,13 +218,14 @@ export class MemosSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('快捷标签')
-            .setDesc('输入框下方显示的常用标签按钮。格式：关键词|显示名。多关键词分组用 + 连接：记账+消费+支出|记账（点击时筛选所有相关标签）')
-            .addTextArea(text => text
-                .setPlaceholder('今天也要用心过生活,p1|重要且紧急,记账+消费+支出|记账,工作')
-                .setValue(this.plugin.settings.quickTags)
+            .setName('多标签筛选逻辑')
+            .setDesc('同时选中多个标签时的筛选方式')
+            .addDropdown(drop => drop
+                .addOption('and', '同时包含所有选中标签（AND）')
+                .addOption('or', '包含任意一个选中标签（OR）')
+                .setValue(this.plugin.settings.tagFilterLogic)
                 .onChange(async (value) => {
-                    this.plugin.settings.quickTags = value;
+                    this.plugin.settings.tagFilterLogic = value as 'and' | 'or';
                     await this.plugin.saveSettings();
                 }));
 
