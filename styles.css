@@ -1465,4 +1465,33 @@
     flex-wrap: wrap;
     gap: 4px;
     padding: 6px 0 2px;
+    max-height: 60px; /* 约 2 行高度 */
+    overflow: hidden;
+    position: relative;
+    transition: max-height 0.3s ease;
+}
+
+.memos-tag-cloud.is-expanded {
+    max-height: none;
+}
+
+/* 标签云展开/收起按钮 */
+.memos-tag-cloud-toggle {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--background-primary);
+    border: 1px solid var(--memos-border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    z-index: 1;
+}
+
+.memos-tag-cloud-toggle:hover {
+    border-color: var(--memos-primary);
+    color: var(--memos-primary);
 }

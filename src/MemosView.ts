@@ -38,6 +38,7 @@ export class MemosView extends ItemView {
     private taskCheckbox: HTMLInputElement | null = null;
     private tagCloudContainer: HTMLElement | null = null;
     private selectedTags: Set<string> = new Set();
+    private tagCloudExpanded: boolean = false;
     private editingMemo: MemoItem | null = null;
     /**
      * 番茄钟 UI 容器缓存：stableMemoId → 该卡片中的 .memos-pomodoro-control 元素
@@ -276,6 +277,23 @@ export class MemosView extends ItemView {
                 await this.applyTagFilter();
             });
         }
+
+        // 添加展开/收起按钮
+        const toggleBtn = this.tagCloudContainer.createEl('button', {
+            cls: 'memos-tag-cloud-toggle',
+            text: this.tagCloudExpanded ? '收起' : '展开'
+        });
+        toggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.tagCloudExpanded = !this.tagCloudExpanded;
+            if (this.tagCloudExpanded) {
+                this.tagCloudContainer?.addClass('is-expanded');
+                toggleBtn.setText('收起');
+            } else {
+                this.tagCloudContainer?.removeClass('is-expanded');
+                toggleBtn.setText('展开');
+            }
+        });
     }
 
     /**
